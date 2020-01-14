@@ -248,6 +248,12 @@ public class Listener {
      */
     public static final List<String> EXCLUDES = new ArrayList<String>();
 
+
+    /**
+     * If provided, only the files matching these patterns will be printed.
+     */
+    public static final List<String> FILE_PATTERNS = new ArrayList<>();
+
     /**
      * Tracing may cause additional files to be opened.
      * In such a case, avoid infinite recursion.

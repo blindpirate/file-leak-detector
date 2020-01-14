@@ -52,10 +52,10 @@ public class AgentMain {
     public static void agentmain(String agentArguments, Instrumentation instrumentation) throws Exception {
         premain(agentArguments,instrumentation);
     }
-    
+
     public static void premain(String agentArguments, Instrumentation instrumentation) throws Exception {
         int serverPort = -1;
-        
+
         if(agentArguments!=null) {
             // used by Main to prevent the termination of target JVM
             boolean quit = true;
@@ -116,6 +116,8 @@ public class AgentMain {
                     } finally {
                     	reader.close();
                     }
+                } else if (t.equals("dumpondemand")) {
+                    // ignore
                 } else {
                     System.err.println("Unknown option: "+t);
                     usage();
@@ -133,12 +135,12 @@ public class AgentMain {
 
         Listener.AGENT_INSTALLED = true;
         instrumentation.addTransformer(new TransformerImpl(createSpec()),true);
-        
+
         instrumentation.retransformClasses(
                 FileInputStream.class,
                 FileOutputStream.class,
                 RandomAccessFile.class,
-                Class.forName("java.net.PlainSocketImpl"),
+//                Class.forName("java.net.PlainSocketImpl"),
                 ZipFile.class,
                 AbstractSelectableChannel.class,
                 AbstractInterruptibleChannel.class,
@@ -211,6 +213,7 @@ public class AgentMain {
         System.err.println("  strong         - Don't let GC auto-close leaking file descriptors.");
         System.err.println("  listener=S     - Specify the fully qualified name of ActivityListener class to activate from beginning.");
         System.err.println("  dumpatshutdown - Dump open file handles at shutdown.");
+        System.err.println("  dumpondemand   - Dump open file handles on demand (which can be triggered via reflection in the same JVM).");
         System.err.println("  excludes=FILE  - Ignore files opened directly/indirectly in specific methods.");
         System.err.println("                   File lists 'some.pkg.ClassName.methodName' patterns.");
     }
@@ -227,24 +230,24 @@ public class AgentMain {
              */
             new ClassTransformSpec(FileChannel.class,
                     new ReturnFromStaticMethodInterceptor("open",
-                            "(Ljava/nio/file/Path;Ljava/util/Set;[Ljava/nio/file/attribute/FileAttribute;)Ljava/nio/channels/FileChannel;", 4, "open_filechannel", FileChannel.class, Path.class)),
-            /*
-             * Detect new Pipes
-             */
-            new ClassTransformSpec(AbstractSelectableChannel.class,
-                    new ConstructorInterceptor("(Ljava/nio/channels/spi/SelectorProvider;)V", "openPipe")),
-            /*
-             * AbstractInterruptibleChannel is used by FileChannel and Pipes
-             */
-            new ClassTransformSpec(AbstractInterruptibleChannel.class,
-                    new CloseInterceptor("close")),
+                            "(Ljava/nio/file/Path;Ljava/util/Set;[Ljava/nio/file/attribute/FileAttribute;)Ljava/nio/channels/FileChannel;", 4, "open_filechannel", FileChannel.class, Path.class))
+//            /*
+//             * Detect new Pipes
+//             */
+//            new ClassTransformSpec(AbstractSelectableChannel.class,
+//                    new ConstructorInterceptor("(Ljava/nio/channels/spi/SelectorProvider;)V", "openPipe")),
+//            /*
+//             * AbstractInterruptibleChannel is used by FileChannel and Pipes
+//             */
+//            new ClassTransformSpec(AbstractInterruptibleChannel.class,
+//                    new CloseInterceptor("close")),
 
             /**
              * Detect selectors, which may open native pipes and anonymous inodes for event polling.
              */
-            new ClassTransformSpec(AbstractSelector.class,
-                    new ConstructorInterceptor("(Ljava/nio/channels/spi/SelectorProvider;)V", "openSelector"),
-                    new CloseInterceptor("close")),
+//            new ClassTransformSpec(AbstractSelector.class,
+//                    new ConstructorInterceptor("(Ljava/nio/channels/spi/SelectorProvider;)V", "openSelector"),
+//                    new CloseInterceptor("close")),
 
             /*
                 java.net.Socket/ServerSocket uses SocketImpl, and this is where FileDescriptors
@@ -253,32 +256,32 @@ public class AgentMain {
                 SocketInputStream/SocketOutputStream does not maintain a separate FileDescritor.
                 They just all piggy back on the same SocketImpl instance.
              */
-            new ClassTransformSpec("java/net/PlainSocketImpl",
-                    // this is where a new file descriptor is allocated.
-                    // it'll occupy a socket even before it gets connected
-                    new OpenSocketInterceptor("create", "(Z)V"),
-
-                    // When a socket is accepted, it goes to "accept(SocketImpl s)"
-                    // where 's' is the new socket and 'this' is the server socket
-                    new AcceptInterceptor("accept","(Ljava/net/SocketImpl;)V"),
-
-                    // file descriptor actually get closed in socketClose()
-                    // socketPreClose() appears to do something similar, but if you read the source code
-                    // of the native socketClose0() method, then you see that it actually doesn't close
-                    // a file descriptor.
-                    new CloseInterceptor("socketClose")
-            ),
+//            new ClassTransformSpec("java/net/PlainSocketImpl",
+//                    // this is where a new file descriptor is allocated.
+//                    // it'll occupy a socket even before it gets connected
+//                    new OpenSocketInterceptor("create", "(Z)V"),
+//
+//                    // When a socket is accepted, it goes to "accept(SocketImpl s)"
+//                    // where 's' is the new socket and 'this' is the server socket
+//                    new AcceptInterceptor("accept","(Ljava/net/SocketImpl;)V"),
+//
+//                    // file descriptor actually get closed in socketClose()
+//                    // socketPreClose() appears to do something similar, but if you read the source code
+//                    // of the native socketClose0() method, then you see that it actually doesn't close
+//                    // a file descriptor.
+//                    new CloseInterceptor("socketClose")
+//            ),
             // Later versions of the JDK abstracted out the parts of PlainSocketImpl above into a super class
-            new ClassTransformSpec("java/net/AbstractPlainSocketImpl",
-                new OpenSocketInterceptor("create", "(Z)V"),
-                new AcceptInterceptor("accept","(Ljava/net/SocketImpl;)V"),
-                new CloseInterceptor("socketClose")
-            ),
-            new ClassTransformSpec("sun/nio/ch/SocketChannelImpl",
-                    new OpenSocketInterceptor("<init>", "(Ljava/nio/channels/spi/SelectorProvider;Ljava/io/FileDescriptor;Ljava/net/InetSocketAddress;)V"),
-                    new OpenSocketInterceptor("<init>", "(Ljava/nio/channels/spi/SelectorProvider;)V"),
-                    new CloseInterceptor("kill")
-            )
+//            new ClassTransformSpec("java/net/AbstractPlainSocketImpl",
+//                new OpenSocketInterceptor("create", "(Z)V"),
+//                new AcceptInterceptor("accept","(Ljava/net/SocketImpl;)V"),
+//                new CloseInterceptor("socketClose")
+//            ),
+//            new ClassTransformSpec("sun/nio/ch/SocketChannelImpl",
+//                    new OpenSocketInterceptor("<init>", "(Ljava/nio/channels/spi/SelectorProvider;Ljava/io/FileDescriptor;Ljava/net/InetSocketAddress;)V"),
+//                    new OpenSocketInterceptor("<init>", "(Ljava/nio/channels/spi/SelectorProvider;)V"),
+//                    new CloseInterceptor("kill")
+//            )
         );
     }
 
@@ -399,7 +402,7 @@ public class AgentMain {
          * Decide if this is the method that needs interception.
          */
         protected abstract boolean toIntercept(String owner, String name);
-        
+
         protected Class<? extends Exception> getExpectedException() {
             return IOException.class;
         }
@@ -408,7 +411,7 @@ public class AgentMain {
         public void visitMethodInsn(int opcode, String owner, String name, String desc, boolean itf) {
             if(toIntercept(owner,name)) {
                 Type exceptionType = Type.getType(getExpectedException());
-                
+
                 CodeGenerator g = new CodeGenerator(mv);
                 Label s = new Label(); // start of the try block
                 Label e = new Label();  // end of the try block
