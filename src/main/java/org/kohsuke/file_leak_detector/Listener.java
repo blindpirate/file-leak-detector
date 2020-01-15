@@ -290,6 +290,9 @@ public class Listener {
      *      File being opened.
      */
     public static synchronized void open(Object _this, File f) {
+        if (EXCLUDES.stream().anyMatch(excludePattern -> f.getAbsolutePath().contains(excludePattern))) {
+            return;
+        }
         put(_this, new FileRecord(f));
 
         for (ActivityListener al : ActivityListener.LIST) {

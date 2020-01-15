@@ -54,7 +54,7 @@ public class AgentMain {
     }
 
     public static void premain(String agentArguments, Instrumentation instrumentation) throws Exception {
-        int serverPort = -1;
+        String portFile = null;
 
         if(agentArguments!=null) {
             // used by Main to prevent the termination of target JVM
@@ -79,7 +79,7 @@ public class AgentMain {
                     Listener.makeStrong();
                 } else
                 if(t.startsWith("http=")) {
-                    serverPort = Integer.parseInt(t.substring(t.indexOf('=')+1));
+                    portFile = t.substring(t.indexOf('=')+1);
                 } else
                 if(t.startsWith("trace=")) {
                     Listener.TRACE = new PrintWriter(new FileOutputStream(t.substring(6)));
@@ -99,23 +99,7 @@ public class AgentMain {
                     });
                 } else
                 if(t.startsWith("excludes=")) {
-                    BufferedReader reader = new BufferedReader(new FileReader(t.substring(9)));
-                    try {
-	                    while (true) {
-	                    	String line = reader.readLine();
-	                    	if(line == null) {
-	                    		break;
-	                    	}
-
-	                    	String str = line.trim();
-	                        // add the entries from the excludes-file, but filter out empty ones and comments
-	                    	if(!str.isEmpty() && !str.startsWith("#")) {
-	                    		Listener.EXCLUDES.add(str);
-	                    	}
-	                    }
-                    } finally {
-                    	reader.close();
-                    }
+                    Listener.EXCLUDES.addAll(Arrays.asList(t.substring("excludes=".length()).split(File.pathSeparator)));
                 } else if (t.equals("dumpondemand")) {
                     // ignore
                 } else {
@@ -154,13 +138,33 @@ public class AgentMain {
 //                AbstractInterruptibleChannel.class,
 //                ServerSocket.class);
 
-        if (serverPort>=0)
-            runHttpServer(serverPort);
+        if (portFile!=null)
+            runHttpServer(portFile);
     }
 
-    private static void runHttpServer(int port) throws IOException {
+    private static int tryBind(ServerSocket serverSocket) {
+        int port = 50000;
+        while (port < 51000) {
+            try {
+                serverSocket.bind(new InetSocketAddress("localhost", port));
+                return port;
+            } catch (IOException ignore) {
+                System.err.println("Bind to " + port + " failed");
+            }
+            port++;
+        }
+        System.err.println("No available ports found between 50000 and 51000");
+        System.exit(-1);
+        return -1;
+    }
+
+    private static void runHttpServer(String portFile) throws IOException {
         final ServerSocket ss = new ServerSocket();
-        ss.bind(new InetSocketAddress("localhost", port));
+
+        int port = tryBind(ss);
+
+        writeToPortFile(port, portFile);
+
         System.err.println("Serving file leak stats on http://localhost:"+ss.getLocalPort()+"/ for stats");
         final ExecutorService es = Executors.newCachedThreadPool(new ThreadFactory() {
             public Thread newThread(Runnable r) {
@@ -177,12 +181,21 @@ public class AgentMain {
                         public Void call() throws Exception {
                             try {
                                 BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream()));
-                                // Read the request line (and ignore it)
-                                in.readLine();
+                                // Read the request line, extract the dump file path
+                                // GET /xxx HTTP/1.1
+                                String  requestLine = in.readLine();
+                                int firstSlashIndex = requestLine.indexOf('/');
+                                int httpIndex = requestLine.indexOf("HTTP");
+                                String dumpFilePath = requestLine.substring(firstSlashIndex+1, httpIndex-1);
 
-                                PrintWriter w = new PrintWriter(new OutputStreamWriter(s.getOutputStream(),"UTF-8"));
-                                w.print("HTTP/1.0 200 OK\r\nContent-Type: text/plain;charset=UTF-8\r\n\r\n");
-                                Listener.dump(w);
+                                try (FileOutputStream fos = new FileOutputStream(dumpFilePath)) {
+                                    Listener.dump(fos);
+                                }
+
+                                PrintWriter httpResponse = new PrintWriter(new OutputStreamWriter(s.getOutputStream(), "UTF-8"));
+                                httpResponse.print("HTTP/1.0 200 OK\r\nContent-Type: text/plain;charset=UTF-8\r\n\r\n");
+                                httpResponse.println("Dump file generated at " + dumpFilePath);
+                                httpResponse.flush();
                             } finally {
                                 s.close();
                             }
@@ -192,6 +205,13 @@ public class AgentMain {
                 }
             }
         });
+    }
+
+    private static void writeToPortFile(int port, String portFile) throws FileNotFoundException {
+        try (PrintWriter pw = new PrintWriter(new FileOutputStream(portFile, false))) {
+            pw.println(port);
+            pw.flush();
+        }
     }
 
     private static void usage() {
