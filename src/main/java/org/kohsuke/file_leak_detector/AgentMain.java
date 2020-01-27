@@ -54,7 +54,7 @@ public class AgentMain {
     }
 
     public static void premain(String agentArguments, Instrumentation instrumentation) throws Exception {
-        String portFile = null;
+        int serverPort = -1;
 
         if(agentArguments!=null) {
             // used by Main to prevent the termination of target JVM
@@ -79,7 +79,7 @@ public class AgentMain {
                     Listener.makeStrong();
                 } else
                 if(t.startsWith("http=")) {
-                    portFile = t.substring(t.indexOf('=')+1);
+                    serverPort = Integer.parseInt(t.substring(t.indexOf('=')+1));
                 } else
                 if(t.startsWith("trace=")) {
                     Listener.TRACE = new PrintWriter(new FileOutputStream(t.substring(6)));
@@ -138,32 +138,13 @@ public class AgentMain {
 //                AbstractInterruptibleChannel.class,
 //                ServerSocket.class);
 
-        if (portFile!=null)
-            runHttpServer(portFile);
+        if (serverPort!=-1)
+            runHttpServer(serverPort);
     }
 
-    private static int tryBind(ServerSocket serverSocket) {
-        int port = 50000;
-        while (port < 51000) {
-            try {
-                serverSocket.bind(new InetSocketAddress("localhost", port));
-                return port;
-            } catch (IOException ignore) {
-                System.err.println("Bind to " + port + " failed");
-            }
-            port++;
-        }
-        System.err.println("No available ports found between 50000 and 51000");
-        System.exit(-1);
-        return -1;
-    }
-
-    private static void runHttpServer(String portFile) throws IOException {
+    private static void runHttpServer(int port) throws IOException {
         final ServerSocket ss = new ServerSocket();
-
-        int port = tryBind(ss);
-
-        writeToPortFile(port, portFile);
+        ss.bind(new InetSocketAddress("localhost", port));
 
         System.err.println("Serving file leak stats on http://localhost:"+ss.getLocalPort()+"/ for stats");
         final ExecutorService es = Executors.newCachedThreadPool(new ThreadFactory() {
@@ -205,13 +186,6 @@ public class AgentMain {
                 }
             }
         });
-    }
-
-    private static void writeToPortFile(int port, String portFile) throws FileNotFoundException {
-        try (PrintWriter pw = new PrintWriter(new FileOutputStream(portFile, false))) {
-            pw.println(port);
-            pw.flush();
-        }
     }
 
     private static void usage() {
