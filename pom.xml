@@ -55,7 +55,7 @@
               <exclude>**/TransformerTest.java</exclude>
             </excludes>
             <argLine>
-              -javaagent:"${project.build.directory}/file-leak-detector-${project.version}-jar-with-dependencies.jar"
+              -javaagent:"${project.build.directory}/file-leak-detector-${project.version}-gradle.jar"
             </argLine>
           </configuration>
         </execution>
@@ -88,7 +88,7 @@
             <phase>package</phase>
             <configuration>
               <shadedArtifactAttached>true</shadedArtifactAttached>
-              <shadedClassifierName>jar-with-dependencies</shadedClassifierName>
+              <shadedClassifierName>gradle</shadedClassifierName>
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                 <manifestEntries>

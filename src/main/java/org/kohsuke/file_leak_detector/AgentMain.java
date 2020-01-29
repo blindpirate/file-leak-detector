@@ -25,6 +25,8 @@ import java.nio.channels.spi.AbstractInterruptibleChannel;
 import java.nio.channels.spi.AbstractSelectableChannel;
 import java.nio.channels.spi.AbstractSelector;
 import java.nio.file.Path;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -54,8 +56,7 @@ public class AgentMain {
     }
 
     public static void premain(String agentArguments, Instrumentation instrumentation) throws Exception {
-        String portFile = null;
-
+        String gradleRootDir = null;
         if(agentArguments!=null) {
             // used by Main to prevent the termination of target JVM
             boolean quit = true;
@@ -78,8 +79,8 @@ public class AgentMain {
                 if(t.equals("strong")) {
                     Listener.makeStrong();
                 } else
-                if(t.startsWith("http=")) {
-                    portFile = t.substring(t.indexOf('=')+1);
+                if(t.startsWith("gradleRootDir=")) {
+                    gradleRootDir = t.substring("gradleRootDir".length()+1);
                 } else
                 if(t.startsWith("trace=")) {
                     Listener.TRACE = new PrintWriter(new FileOutputStream(t.substring(6)));
@@ -138,8 +139,8 @@ public class AgentMain {
 //                AbstractInterruptibleChannel.class,
 //                ServerSocket.class);
 
-        if (portFile!=null)
-            runHttpServer(portFile);
+        if (gradleRootDir!=null)
+            runHttpServer(new File(gradleRootDir));
     }
 
     private static int tryBind(ServerSocket serverSocket) {
@@ -158,12 +159,12 @@ public class AgentMain {
         return -1;
     }
 
-    private static void runHttpServer(String portFile) throws IOException {
+    private static void runHttpServer(File gradleRootDir) throws IOException {
         final ServerSocket ss = new ServerSocket();
 
         int port = tryBind(ss);
 
-        writeToPortFile(port, portFile);
+        writeToPortFile(port, new File(gradleRootDir, "port.txt"));
 
         System.err.println("Serving file leak stats on http://localhost:"+ss.getLocalPort()+"/ for stats");
         final ExecutorService es = Executors.newCachedThreadPool(new ThreadFactory() {
@@ -186,9 +187,13 @@ public class AgentMain {
                                 String  requestLine = in.readLine();
                                 int firstSlashIndex = requestLine.indexOf('/');
                                 int httpIndex = requestLine.indexOf("HTTP");
-                                String dumpFilePath = requestLine.substring(firstSlashIndex+1, httpIndex-1);
+                                // Read the request line (and ignore it)
+                                in.readLine();
 
-                                try (FileOutputStream fos = new FileOutputStream(dumpFilePath)) {
+                                String time = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss").format(ZonedDateTime.now());
+                                String dumpFilePath = time + ".filehandles.txt";
+
+                                try (FileOutputStream fos = new FileOutputStream(new File(gradleRootDir, dumpFilePath))) {
                                     Listener.dump(fos);
                                 }
 
@@ -207,7 +212,7 @@ public class AgentMain {
         });
     }
 
-    private static void writeToPortFile(int port, String portFile) throws FileNotFoundException {
+    private static void writeToPortFile(int port, File portFile) throws FileNotFoundException {
         try (PrintWriter pw = new PrintWriter(new FileOutputStream(portFile, false))) {
             pw.println(port);
             pw.flush();
@@ -228,7 +233,7 @@ public class AgentMain {
         System.err.println("                   By default it goes to stderr.");
         System.err.println("  threshold=N    - Instead of waiting until 'too many open files', dump once");
         System.err.println("                   we have N descriptors open.");
-        System.err.println("  http=PORT      - Run a mini HTTP server that you can access to get stats on demand.");
+        System.err.println("  gradleRootDir=PORT      - Run a mini HTTP server that prints port at the directory and dumps file handles on HTTP requests.");
         System.err.println("                   Specify 0 to choose random available port, -1 to disable, which is default.");
         System.err.println("  strong         - Don't let GC auto-close leaking file descriptors.");
         System.err.println("  listener=S     - Specify the fully qualified name of ActivityListener class to activate from beginning.");
