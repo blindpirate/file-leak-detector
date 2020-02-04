@@ -9,7 +9,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
-import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -24,15 +23,19 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.spi.AbstractInterruptibleChannel;
 import java.nio.channels.spi.AbstractSelectableChannel;
 import java.nio.channels.spi.AbstractSelector;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.stream.Collectors;
 import java.util.zip.ZipFile;
 
 import org.kohsuke.args4j.CmdLineException;
@@ -164,7 +167,7 @@ public class AgentMain {
 
         int port = tryBind(ss);
 
-        writeToPortFile(port, new File(gradleRootDir, "port.txt"));
+        addPortToPortsFile(port, new File(gradleRootDir, "ports.txt"));
 
         System.err.println("Serving file leak stats on http://localhost:"+ss.getLocalPort()+"/ for stats");
         final ExecutorService es = Executors.newCachedThreadPool(new ThreadFactory() {
@@ -174,49 +177,53 @@ public class AgentMain {
                 return t;
             }
         });
-        es.submit(new Callable<Object>() {
-            public Object call() throws Exception {
-                while (true) {
-                    final Socket s = ss.accept();
-                    es.submit(new Callable<Void>() {
-                        public Void call() throws Exception {
-                            try {
-                                BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream()));
-                                // Read the request line, extract the dump file path
-                                // GET /xxx HTTP/1.1
-                                String  requestLine = in.readLine();
-                                int firstSlashIndex = requestLine.indexOf('/');
-                                int httpIndex = requestLine.indexOf("HTTP");
-                                // Read the request line (and ignore it)
-                                in.readLine();
+        es.submit(() -> {
+            while (true) {
+                final Socket s = ss.accept();
+                es.submit((Callable<Void>) () -> {
+                    try {
+                        BufferedReader in = new BufferedReader(new InputStreamReader(s.getInputStream()));
+                        // Read the request line, extract the dump file path
+                        // GET /xxx HTTP/1.1
+                        String  requestLine = in.readLine();
+                        int firstSlashIndex = requestLine.indexOf('/');
+                        int httpIndex = requestLine.indexOf("HTTP");
+                        // Read the request line (and ignore it)
+                        in.readLine();
 
-                                String time = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss").format(ZonedDateTime.now());
-                                String dumpFilePath = time + ".filehandles.txt";
+                        String time = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss").format(ZonedDateTime.now());
+                        String dumpFilePath = ProcessHandle.current().pid() + "-" + time + ".filehandles.txt";
 
-                                try (FileOutputStream fos = new FileOutputStream(new File(gradleRootDir, dumpFilePath))) {
-                                    Listener.dump(fos);
-                                }
-
-                                PrintWriter httpResponse = new PrintWriter(new OutputStreamWriter(s.getOutputStream(), "UTF-8"));
-                                httpResponse.print("HTTP/1.0 200 OK\r\nContent-Type: text/plain;charset=UTF-8\r\n\r\n");
-                                httpResponse.println("Dump file generated at " + dumpFilePath);
-                                httpResponse.flush();
-                            } finally {
-                                s.close();
-                            }
-                            return null;
+                        try (FileOutputStream fos = new FileOutputStream(new File(gradleRootDir, dumpFilePath))) {
+                            Listener.dump(fos);
                         }
-                    });
-                }
+
+                        PrintWriter httpResponse = new PrintWriter(new OutputStreamWriter(s.getOutputStream(), "UTF-8"));
+                        httpResponse.print("HTTP/1.0 200 OK\r\nContent-Type: text/plain;charset=UTF-8\r\n\r\n");
+                        httpResponse.println("Dump file generated at " + dumpFilePath);
+                        httpResponse.flush();
+                    } finally {
+                        s.close();
+                    }
+                    return null;
+                });
             }
         });
     }
 
-    private static void writeToPortFile(int port, File portFile) throws FileNotFoundException {
-        try (PrintWriter pw = new PrintWriter(new FileOutputStream(portFile, false))) {
-            pw.println(port);
-            pw.flush();
-        }
+    // add port to ports.txt
+    // because a Gradle daemon can be reused multiple times
+    // -----
+    // 50000
+    // 50001
+    // ...
+    private static void addPortToPortsFile(int port, File portsFile) throws IOException {
+        Set<String> ports = portsFile.isFile()
+                ? Files.readAllLines(portsFile.toPath()).stream().map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toSet())
+                : new HashSet<>();
+        ports.add("" + port);
+
+        Files.write(portsFile.toPath(), ports);
     }
 
     private static void usage() {
@@ -233,7 +240,7 @@ public class AgentMain {
         System.err.println("                   By default it goes to stderr.");
         System.err.println("  threshold=N    - Instead of waiting until 'too many open files', dump once");
         System.err.println("                   we have N descriptors open.");
-        System.err.println("  gradleRootDir=PORT      - Run a mini HTTP server that prints port at the directory and dumps file handles on HTTP requests.");
+        System.err.println("  gradleRootDir=DIR      - Specify the gradle root directory where the build runs.");
         System.err.println("                   Specify 0 to choose random available port, -1 to disable, which is default.");
         System.err.println("  strong         - Don't let GC auto-close leaking file descriptors.");
         System.err.println("  listener=S     - Specify the fully qualified name of ActivityListener class to activate from beginning.");
