@@ -332,35 +332,35 @@ public class Listener {
      */
     public static synchronized void openSocket(Object _this) {
         // intercept when
-        if (_this instanceof SocketImpl) {
-            try {
-                // one of the following must be true
-                SocketImpl si = (SocketImpl) _this;
-                Socket s = (Socket)SOCKETIMPL_SOCKET.get(si);
-                if (s!=null) {
-                    put(_this, new SocketRecord(s));
-                    for (ActivityListener al : ActivityListener.LIST) {
-                        al.openSocket(s);
-                    }
-                }
-                ServerSocket ss = (ServerSocket)SOCKETIMPL_SERVER_SOCKET.get(si);
-                if (ss!=null) {
-                    put(_this, new ServerSocketRecord(ss));
-                    for (ActivityListener al : ActivityListener.LIST) {
-                        al.openSocket(ss);
-                    }
-                }
-            } catch (IllegalAccessException e) {
-                throw new AssertionError(e);
-            }
-        }
-        if (_this instanceof SocketChannel) {
-            put(_this, new SocketChannelRecord((SocketChannel) _this));
-
-            for (ActivityListener al : ActivityListener.LIST) {
-                al.openSocket(_this);
-            }
-        }
+//        if (_this instanceof SocketImpl) {
+//            try {
+//                // one of the following must be true
+//                SocketImpl si = (SocketImpl) _this;
+//                Socket s = (Socket)SOCKETIMPL_SOCKET.get(si);
+//                if (s!=null) {
+//                    put(_this, new SocketRecord(s));
+//                    for (ActivityListener al : ActivityListener.LIST) {
+//                        al.openSocket(s);
+//                    }
+//                }
+//                ServerSocket ss = (ServerSocket)SOCKETIMPL_SERVER_SOCKET.get(si);
+//                if (ss!=null) {
+//                    put(_this, new ServerSocketRecord(ss));
+//                    for (ActivityListener al : ActivityListener.LIST) {
+//                        al.openSocket(ss);
+//                    }
+//                }
+//            } catch (IllegalAccessException e) {
+//                throw new AssertionError(e);
+//            }
+//        }
+//        if (_this instanceof SocketChannel) {
+//            put(_this, new SocketChannelRecord((SocketChannel) _this));
+//
+//            for (ActivityListener al : ActivityListener.LIST) {
+//                al.openSocket(_this);
+//            }
+//        }
     }
     
     public static synchronized List<Record> getCurrentOpenFiles() {
@@ -453,16 +453,16 @@ public class Listener {
         }
     }
 
-    private static Field SOCKETIMPL_SOCKET,SOCKETIMPL_SERVER_SOCKET;
+//    private static Field SOCKETIMPL_SOCKET,SOCKETIMPL_SERVER_SOCKET;
     
-    static {
-        try {
-            SOCKETIMPL_SOCKET = SocketImpl.class.getDeclaredField("socket");
-            SOCKETIMPL_SERVER_SOCKET = SocketImpl.class.getDeclaredField("serverSocket");
-            SOCKETIMPL_SOCKET.setAccessible(true);
-            SOCKETIMPL_SERVER_SOCKET.setAccessible(true);
-        } catch (NoSuchFieldException e) {
-            throw new Error(e);
-        }
-    }
+//    static {
+//        try {
+//            SOCKETIMPL_SOCKET = SocketImpl.class.getDeclaredField("socket");
+//            SOCKETIMPL_SERVER_SOCKET = SocketImpl.class.getDeclaredField("serverSocket");
+//            SOCKETIMPL_SOCKET.setAccessible(true);
+//            SOCKETIMPL_SERVER_SOCKET.setAccessible(true);
+//        } catch (NoSuchFieldException e) {
+//            throw new Error(e);
+//        }
+//    }
 }
